@@ -1,0 +1,46 @@
+# Human Following Robot
+
+## Overview
+This project is a smart mobile robot that follows a human using ultrasonic sensing and motor control. Inspired by real-world products like smart robotic luggage. :contentReference[oaicite:1]{index=1}
+
+---
+
+## Features
+- Human tracking using ultrasonic sensor
+- Smooth motor control using PWM
+- Obstacle detection
+- Real-time distance adjustment
+
+---
+
+## Concepts Used
+- Closed-loop control system
+- Distance measurement using ultrasonic sensor
+- PWM motor control
+- Conditional logic
+
+---
+
+## Components
+- Arduino Uno
+- Ultrasonic Sensor (HC-SR04)
+- Motor Driver Shield
+- DC Motors
+- Servo Motor
+- Robot Chassis
+
+---
+
+## Working
+1. Ultrasonic sensor detects distance
+2. If distance < threshold → Stop
+3. If distance > threshold → Move forward
+4. Adjust speed dynamically
+
+---
+
+## Applications
+- Smart luggage
+- Warehouse robots
+- Personal assistant robots
+

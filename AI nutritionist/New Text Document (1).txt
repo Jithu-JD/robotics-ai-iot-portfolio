@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>AI Nutritionist</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest"></script>
+</head>
+<body>
+
+<h2>AI Nutritionist</h2>
+<video id="cam" autoplay playsinline></video>
+<p id="result">Waiting...</p>
+
+<script>
+const ESP_IP = "192.168.1.50"; // ESP32-CAM IP
+const MODEL_URL = "./";
+
+let model, webcam;
+
+async function init() {
+  model = await tmImage.load(
+    MODEL_URL + "model.json",
+    MODEL_URL + "metadata.json"
+  );
+
+  webcam = new tmImage.Webcam(320, 240);
+  await webcam.setup();   // uses laptop camera OR ESP32 stream
+  await webcam.play();
+  document.getElementById("cam").appendChild(webcam.canvas);
+
+  loop();
+}
+
+async function loop() {
+  webcam.update();
+  await predict();
+  requestAnimationFrame(loop);
+}
+
+async function predict() {
+  const prediction = await model.predict(webcam.canvas);
+
+  prediction.sort((a,b) => b.probability - a.probability);
+  const top = prediction[0];
+
+  document.getElementById("result").innerText =
+    `${top.className} (${(top.probability*100).toFixed(1)}%)`;
+
+  if (top.probability > 0.85) {
+    if (top.className === "Apple" || top.className === "Banana") {
+      sendToRobot("healthy");
+    } else {
+      sendToRobot("unhealthy");
+    }
+  } else {
+    sendToRobot("thinking");
+  }
+}
+
+function sendToRobot(result) {
+  fetch(`http://${ESP_IP}/ai?result=${result}`).catch(()=>{});
+}
+
+init();
+</script>
+
+</body>
+</html>

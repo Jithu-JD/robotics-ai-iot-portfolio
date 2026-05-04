@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>AI Nutritionist</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest"></script>
+  <style>
+    body { font-family: Arial, sans-serif; }
+    #wrap { display: flex; gap: 24px; align-items: flex-start; }
+    #stream { width: 480px; height: auto; background: #000; }
+    #status { margin-top: 10px; font-size: 18px; }
+    #debug { margin-top: 8px; color: #555; font-size: 14px; }
+    canvas { display:none; } /* hide processing canvas */
+  </style>
+</head>
+<body>
+
+<h2>AI Nutritionist (ESP32-CAM Stream)</h2>
+
+<div id="wrap">
+  <!-- ESP32 stream -->
+  <img id="stream" alt="ESP32 Stream" />
+
+  <div>
+    <div id="status">Loading model...</div>
+    <div id="debug"></div>
+
+    <p><b>Robot test links:</b></p>
+    <ul>
+      <li><a id="moveF" target="_blank">Forward</a></li>
+      <li><a id="moveB" target="_blank">Backward</a></li>
+      <li><a id="moveL" target="_blank">Left</a></li>
+      <li><a id="moveR" target="_blank">Right</a></li>
+      <li><a id="moveS" target="_blank">Stop</a></li>
+    </ul>
+  </div>
+</div>
+
+<!-- Canvas used for inference -->
+<canvas id="frame" width="320" height="240"></canvas>
+
+<script>
+  // ✅ Set this to your ESP32-CAM IP (from Serial Monitor)
+  const ESP_IP = "192.168.31.58";
+
+  // Teachable Machine exported TFJS files must be in same folder:
+  // model.json, metadata.json, weights.bin
+  const MODEL_URL = "./";
+
+  // Stream URL
+  const STREAM_URL = `http://${ESP_IP}:81/stream`;
+
+  // AI endpoint URL
+  const AI_URL = (result) => `http://${ESP_IP}/ai?result=${result}`;
+
+  // Manual move URLs (optional)
+  const MOVE_URL = (dir) => `http://${ESP_IP}/move?dir=${dir}`;
+
+  // Controls
+  const CONF_THRESHOLD = 0.85;     // confidence threshold
+  const PREDICT_EVERY_MS = 200;    // run inference 5 times/sec (stable)
+  const COMMAND_COOLDOWN_MS = 1200; // don't spam robot
+
+  let model;
+  let lastPredictAt = 0;
+  let lastCommandAt = 0;
+  let lastSent = "";
+
+  const streamImg = document.getElementById("stream");
+  const canvas = document.getElementById("frame");
+  const ctx = canvas.getContext("2d");
+  const statusEl = document.getElementById("status");
+  const debugEl = document.getElementById("debug");
+
+  // Set stream image src
+  streamImg.src = STREAM_URL;
+
+  // Wire test links
+  document.getElementById("moveF").href = MOVE_URL("F");
+  document.getElementById("moveB").href = MOVE_URL("B");
+  document.getElementById("moveL").href = MOVE_URL("L");
+  document.getElementById("moveR").href = MOVE_URL("R");
+  document.getElementById("moveS").href = MOVE_URL("S");
+
+  async function init() {
+    statusEl.textContent = "Loading model...";
+    model = await tmImage.load(MODEL_URL + "model.json", MODEL_URL + "metadata.json");
+    statusEl.textContent = "Model loaded. Waiting for stream...";
+    loop();
+  }
+
+  function decideResult(top) {
+    // Your logic: Apple/Banana => healthy else unhealthy
+    // Edit this mapping as needed
+    if (top.probability >= CONF_THRESHOLD) {
+      if (top.className === "Apple" || top.className === "Banana") return "healthy";
+      return "unhealthy";
+    }
+    return "thinking";
+  }
+
+  function maybeSendToRobot(result) {
+    const now = Date.now();
+
+    // cooldown (avoid spamming)
+    if (now - lastCommandAt < COMMAND_COOLDOWN_MS) return;
+
+    // don't resend same command repeatedly
+    if (result === lastSent) return;
+
+    lastCommandAt = now;
+    lastSent = result;
+
+    fetch(AI_URL(result)).catch(()=>{});
+  }
+
+  async function loop() {
+    const now = Date.now();
+
+    // If stream isn't ready yet, keep trying
+    // (Sometimes img width/height is 0 until first frame arrives)
+    if (streamImg.naturalWidth === 0 || streamImg.naturalHeight === 0) {
+      requestAnimationFrame(loop);
+      return;
+    }
+
+    // run inference at controlled rate
+    if (now - lastPredictAt >= PREDICT_EVERY_MS) {
+      lastPredictAt = now;
+
+      // draw current stream frame into canvas
+      ctx.drawImage(streamImg, 0, 0, canvas.width, canvas.height);
+
+      // predict
+      const prediction = await model.predict(canvas);
+
+      prediction.sort((a,b) => b.probability - a.probability);
+      const top = prediction[0];
+
+      const label = `${top.className} (${(top.probability*100).toFixed(1)}%)`;
+      statusEl.textContent = label;
+
+      const result = decideResult(top);
+      debugEl.textContent = `Decision: ${result} | Stream: ${STREAM_URL}`;
+
+      maybeSendToRobot(result);
+    }
+
+    requestAnimationFrame(loop);
+  }
+
+  init();
+</script>
+
+</body>
+</html>

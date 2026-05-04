@@ -1,0 +1,531 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>AI Nutritionist</title>
+
+    <!-- TFJS + Teachable Machine -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.20.0/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8/dist/teachablemachine-image.min.js"></script>
+
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        margin: 18px;
+      }
+      h2 {
+        margin-top: 0;
+      }
+
+      #wrap {
+        display: flex;
+        gap: 24px;
+        align-items: flex-start;
+      }
+      #leftCol {
+        width: 520px;
+      }
+      #rightCol {
+        width: 460px;
+      }
+
+      #stream {
+        width: 480px;
+        height: auto;
+        background: #000;
+        border-radius: 12px;
+        border: 1px solid #ddd;
+      }
+
+      .card {
+        border: 1px solid #ddd;
+        border-radius: 12px;
+        padding: 12px;
+        margin-bottom: 12px;
+        background: #fafafa;
+      }
+
+      #status {
+        font-size: 18px;
+        font-weight: bold;
+      }
+      #metaLine {
+        margin-top: 6px;
+        color: #444;
+        font-size: 13px;
+      }
+      #debug {
+        margin-top: 6px;
+        color: #666;
+        font-size: 12px;
+      }
+
+      #factsBox {
+        border: 2px solid #222;
+        background: #f7f7f7;
+      }
+      #foodName {
+        font-size: 20px;
+        font-weight: bold;
+      }
+      #tip {
+        margin-top: 8px;
+        color: #333;
+        font-size: 14px;
+      }
+
+      .row {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      button {
+        padding: 10px 12px;
+        border-radius: 10px;
+        border: 1px solid #aaa;
+        background: white;
+        cursor: pointer;
+        font-weight: bold;
+      }
+      button:hover {
+        background: #f0f0f0;
+      }
+      button.primary {
+        border-color: #222;
+      }
+      button.danger {
+        border-color: #b00020;
+      }
+      button.small {
+        padding: 8px 10px;
+        font-weight: 600;
+      }
+
+      #uploadedPreview {
+        max-width: 100%;
+        border-radius: 10px;
+        border: 1px solid #ddd;
+        display: none;
+      }
+
+      .smallText {
+        font-size: 12px;
+        color: #666;
+      }
+      canvas {
+        display: none;
+      }
+      input[type="file"] {
+        padding: 6px;
+      }
+      label {
+        font-weight: bold;
+      }
+      code {
+        background: #eee;
+        padding: 2px 6px;
+        border-radius: 6px;
+      }
+    </style>
+  </head>
+
+  <body>
+    <h2>AI Nutritionist (ESP32-CAM Stream)</h2>
+
+    <div id="wrap">
+      <!-- LEFT: Stream + Upload -->
+      <div id="leftCol">
+        <div class="card">
+          <img id="stream" alt="ESP32 Stream" />
+          <div class="smallText" style="margin-top: 8px">
+            Stream URL: <a id="streamLink" target="_blank"></a>
+          </div>
+          <div class="smallText">
+            Tip: keep item centered + good lighting for best accuracy.
+          </div>
+        </div>
+
+        <div class="card">
+          <label>Upload an image (optional)</label>
+          <div class="smallText">
+            Use this to test with clear photos (manual prediction).
+          </div>
+          <div style="margin-top: 8px" class="row">
+            <input id="fileInput" type="file" accept="image/*" />
+            <button class="small primary" id="btnPredictUpload">
+              Predict uploaded image
+            </button>
+          </div>
+          <div style="margin-top: 10px">
+            <img id="uploadedPreview" alt="Uploaded Preview" />
+          </div>
+          <div
+            id="uploadResult"
+            class="smallText"
+            style="margin-top: 8px"
+          ></div>
+        </div>
+      </div>
+
+      <!-- RIGHT: Status + Facts + Controls -->
+      <div id="rightCol">
+        <div class="card">
+          <div id="status">Loading model...</div>
+          <div id="metaLine">Source: — | Decision: —</div>
+          <div id="debug"></div>
+          <div class="smallText" style="margin-top: 6px">
+            Stream prediction runs automatically. Upload prediction runs when
+            you click the button.
+          </div>
+        </div>
+
+        <div class="card" id="factsBox">
+          <div id="foodName">Show the item clearly 👀</div>
+          <ul id="factsList">
+            <li>Hold item in the center</li>
+            <li>Use good lighting</li>
+            <li>Keep background simple</li>
+          </ul>
+          <div id="tip">Tip: AI improves with clean images.</div>
+        </div>
+
+        <div class="card">
+          <div style="font-weight: bold; margin-bottom: 8px">
+            Robot Control Panel
+          </div>
+
+          <div class="row" style="margin-bottom: 10px">
+            <button class="primary" id="btnF">Forward</button>
+            <button class="primary" id="btnB">Backward</button>
+            <button class="primary" id="btnL">Left</button>
+            <button class="primary" id="btnR">Right</button>
+            <button class="danger" id="btnS">STOP</button>
+          </div>
+
+          <div style="font-weight: bold; margin: 10px 0 8px">AI Commands</div>
+          <div class="row">
+            <button id="btnHealthy">Healthy</button>
+            <button id="btnUnhealthy">Unhealthy</button>
+            <button id="btnThinking">Thinking</button>
+            <button id="btnUnknown">Unknown</button>
+          </div>
+
+          <div class="smallText" style="margin-top: 10px">
+            Quick tests:
+            <div><code>http://ESP_IP/move?dir=F</code></div>
+            <div><code>http://ESP_IP/ai?result=healthy</code></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Canvas used for inference -->
+    <canvas id="frame" width="320" height="240"></canvas>
+
+    <script>
+      // ====== CONFIG ======
+      const ESP_IP = "192.168.31.58";
+      const MODEL_URL = "./";
+      const STREAM_URL = `http://${ESP_IP}:81/stream`;
+      const MOVE_URL = (dir) => `http://${ESP_IP}:81/move?dir=${dir}`;
+      const AI_URL = (res) => `http://${ESP_IP}:81/ai?result=${res}`;
+
+      // Tuning knobs
+      const CONF_THRESHOLD = 0.85; // higher = fewer false positives
+      const PREDICT_EVERY_MS = 250; // ~4 times/sec (more stable on PCs)
+      const COMMAND_COOLDOWN_MS = 1200; // avoid spamming robot
+      const SAME_CLASS_STREAK = 3; // must see same top class N times before acting
+
+      // ====== FACTS DATABASE ======
+      // Keys must match your Teachable Machine class labels EXACTLY.
+      const FACTS_DB = {
+        Banana: {
+          category: "healthy",
+          facts: [
+            "Energy: ~105 kcal (1 medium banana)",
+            "Potassium supports muscles and heart",
+            "Fiber helps digestion",
+          ],
+          tip: "Good snack before sports.",
+        },
+        Apple: {
+          category: "healthy",
+          facts: [
+            "Energy: ~95 kcal (1 medium apple)",
+            "Fiber helps you feel full",
+            "Vitamin C supports immunity",
+          ],
+          tip: "Eat with peel for more fiber (wash first).",
+        },
+        Chips: {
+          category: "unhealthy",
+          facts: [
+            "High salt (too much is not good)",
+            "Often high oil/fat",
+            "Easy to overeat",
+          ],
+          tip: "Try roasted snacks (makhana/peanuts) instead.",
+        },
+        Chocolate: {
+          category: "unhealthy",
+          facts: [
+            "High added sugar",
+            "Quick energy, not long-lasting",
+            "Too much can harm teeth",
+          ],
+          tip: "Okay sometimes—small portion.",
+        },
+      };
+
+      const DEFAULT_FACTS = {
+        healthy: {
+          name: "Healthy choice ✅",
+          facts: [
+            "Gives useful nutrients",
+            "Better for steady energy",
+            "Helps growth and health",
+          ],
+          tip: "Try to eat more natural foods.",
+        },
+        unhealthy: {
+          name: "Unhealthy choice ⚠️",
+          facts: [
+            "Often high sugar/salt/fat",
+            "Okay sometimes, not daily",
+            "Try a healthier swap",
+          ],
+          tip: "Rule: 'sometimes food', not 'everyday food'.",
+        },
+        thinking: {
+          name: "Show the item clearly 👀",
+          facts: [
+            "Hold item in the center",
+            "Use good lighting",
+            "Keep background simple",
+          ],
+          tip: "AI improves with clean images.",
+        },
+        unknown: {
+          name: "Unknown 🤔",
+          facts: [
+            "AI is not confident",
+            "Try another angle",
+            "Add more training images",
+          ],
+          tip: "Add more examples to the dataset.",
+        },
+      };
+
+      // ====== STATE ======
+      let model;
+      let lastPredictAt = 0;
+      let lastCommandAt = 0;
+      let lastSent = "";
+
+      // Stability streak (reduces jitter on stream)
+      let streakClass = "";
+      let streakCount = 0;
+
+      // ====== DOM ======
+      const streamImg = document.getElementById("stream");
+      const streamLink = document.getElementById("streamLink");
+      const canvas = document.getElementById("frame");
+      const ctx = canvas.getContext("2d");
+
+      const statusEl = document.getElementById("status");
+      const metaLineEl = document.getElementById("metaLine");
+      const debugEl = document.getElementById("debug");
+
+      const foodNameEl = document.getElementById("foodName");
+      const factsListEl = document.getElementById("factsList");
+      const tipEl = document.getElementById("tip");
+
+      const fileInput = document.getElementById("fileInput");
+      const uploadedPreview = document.getElementById("uploadedPreview");
+      const uploadResult = document.getElementById("uploadResult");
+
+      // ====== INIT UI ======
+      streamImg.src = STREAM_URL;
+      streamLink.href = STREAM_URL;
+      streamLink.textContent = STREAM_URL;
+
+      // ====== HELPERS ======
+      function renderFacts(className, decision) {
+        if (className && FACTS_DB[className]) {
+          const item = FACTS_DB[className];
+          foodNameEl.textContent = `${className} (${item.category.toUpperCase()})`;
+          factsListEl.innerHTML = item.facts
+            .map((f) => `<li>${f}</li>`)
+            .join("");
+          tipEl.textContent = "Tip: " + item.tip;
+          return;
+        }
+        const fb = DEFAULT_FACTS[decision] || DEFAULT_FACTS.thinking;
+        foodNameEl.textContent = fb.name;
+        factsListEl.innerHTML = fb.facts.map((f) => `<li>${f}</li>`).join("");
+        tipEl.textContent = "Tip: " + fb.tip;
+      }
+
+      function decideResult(top) {
+        // Example mapping: Apple/Banana => healthy else unhealthy
+        // Change this to match YOUR class names.
+        if (top.probability >= CONF_THRESHOLD) {
+          if (top.className === "Apple" || top.className === "Banana")
+            return "healthy";
+          return "unhealthy";
+        }
+        return "thinking";
+      }
+
+      function maybeSendToRobot(result) {
+        const now = Date.now();
+        if (now - lastCommandAt < COMMAND_COOLDOWN_MS) return;
+        if (result === lastSent) return;
+
+        lastCommandAt = now;
+        lastSent = result;
+
+        fetch(AI_URL(result)).catch(() => {});
+      }
+
+      function setStatus(topClass, prob, decision, source) {
+        statusEl.textContent = `${topClass} (${(prob * 100).toFixed(1)}%)`;
+        metaLineEl.textContent = `Source: ${source} | Decision: ${decision}`;
+      }
+
+      function sendMove(dir) {
+        fetch(MOVE_URL(dir)).catch(() => {});
+      }
+
+      // ====== CONTROL PANEL ======
+      document.getElementById("btnF").onclick = () => sendMove("F");
+      document.getElementById("btnB").onclick = () => sendMove("B");
+      document.getElementById("btnL").onclick = () => sendMove("L");
+      document.getElementById("btnR").onclick = () => sendMove("R");
+      document.getElementById("btnS").onclick = () => sendMove("S");
+
+      document.getElementById("btnHealthy").onclick = () => {
+        renderFacts(null, "healthy");
+        maybeSendToRobot("healthy");
+      };
+      document.getElementById("btnUnhealthy").onclick = () => {
+        renderFacts(null, "unhealthy");
+        maybeSendToRobot("unhealthy");
+      };
+      document.getElementById("btnThinking").onclick = () => {
+        renderFacts(null, "thinking");
+        maybeSendToRobot("thinking");
+      };
+      document.getElementById("btnUnknown").onclick = () => {
+        renderFacts(null, "unknown");
+        maybeSendToRobot("unknown");
+      };
+
+      // ====== UPLOAD PREVIEW ======
+      fileInput.addEventListener("change", () => {
+        const file = fileInput.files && fileInput.files[0];
+        if (!file) return;
+        const url = URL.createObjectURL(file);
+        uploadedPreview.src = url;
+        uploadedPreview.style.display = "block";
+        uploadResult.textContent = "Ready. Click 'Predict uploaded image'.";
+      });
+
+      // ====== MODEL LOAD ======
+      async function init() {
+        try {
+          statusEl.textContent = "Loading model...";
+          model = await tmImage.load(
+            MODEL_URL + "model.json",
+            MODEL_URL + "metadata.json",
+          );
+          statusEl.textContent = "Model loaded!";
+          metaLineEl.textContent = "Source: — | Decision: —";
+          debugEl.textContent = `Stream: ${STREAM_URL}`;
+          renderFacts(null, "thinking");
+          loop(); // start stream loop
+        } catch (e) {
+          statusEl.textContent = "Model load FAILED — press F12 Console";
+          console.error("Model load error:", e);
+        }
+      }
+
+      async function predictFromCanvas(sourceLabel) {
+        const prediction = await model.predict(canvas);
+        prediction.sort((a, b) => b.probability - a.probability);
+        const top = prediction[0];
+
+        // streak logic (stream stability)
+        if (sourceLabel === "ESP32 Stream") {
+          if (top.className === streakClass) streakCount++;
+          else {
+            streakClass = top.className;
+            streakCount = 1;
+          }
+        }
+
+        const decision = decideResult(top);
+
+        setStatus(top.className, top.probability, decision, sourceLabel);
+
+        // show facts
+        renderFacts(top.className, decision);
+
+        // only send robot command when stable enough on stream,
+        // but for Upload we can send immediately.
+        if (sourceLabel === "ESP32 Stream") {
+          const stableEnough = streakCount >= SAME_CLASS_STREAK;
+          if (stableEnough) maybeSendToRobot(decision);
+          debugEl.textContent = `Stream: ${STREAM_URL} | Streak: ${streakClass} x${streakCount}`;
+        } else {
+          maybeSendToRobot(decision);
+          debugEl.textContent = `Upload prediction done. Stream still running in background.`;
+        }
+
+        return { top, decision };
+      }
+
+      // ====== STREAM LOOP (ALWAYS RUNS) ======
+      async function loop() {
+        const now = Date.now();
+
+        // wait until stream first frame arrives
+        if (streamImg.naturalWidth === 0 || streamImg.naturalHeight === 0) {
+          requestAnimationFrame(loop);
+          return;
+        }
+
+        if (now - lastPredictAt >= PREDICT_EVERY_MS && model) {
+          lastPredictAt = now;
+          ctx.drawImage(streamImg, 0, 0, canvas.width, canvas.height);
+          await predictFromCanvas("ESP32 Stream");
+        }
+
+        requestAnimationFrame(loop);
+      }
+
+      // ====== UPLOAD PREDICT BUTTON ======
+      document.getElementById("btnPredictUpload").onclick = async () => {
+        const file = fileInput.files && fileInput.files[0];
+        if (!file) {
+          uploadResult.textContent = "Choose an image first.";
+          return;
+        }
+
+        if (!uploadedPreview.complete || uploadedPreview.naturalWidth === 0) {
+          uploadResult.textContent = "Image not ready yet. Try again.";
+          return;
+        }
+
+        // draw uploaded image into canvas
+        ctx.drawImage(uploadedPreview, 0, 0, canvas.width, canvas.height);
+
+        const { top, decision } = await predictFromCanvas("Uploaded Image");
+        uploadResult.textContent = `Uploaded prediction: ${top.className} (${(top.probability * 100).toFixed(1)}%) → ${decision}`;
+      };
+
+      init();
+    </script>
+  </body>
+</html>

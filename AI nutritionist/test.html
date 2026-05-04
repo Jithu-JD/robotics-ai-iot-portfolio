@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Fruit Detection & Car Control</title>
+    <meta charset="UTF-8" />
+    <style>
+      body {
+        font-family: Arial;
+        text-align: center;
+        background: #f0f0f0;
+        padding: 20px;
+      }
+      video {
+        border: 2px solid #333;
+        border-radius: 10px;
+      }
+      .btn {
+        padding: 10px 20px;
+        margin: 5px;
+        font-size: 16px;
+        border-radius: 8px;
+        border: none;
+        cursor: pointer;
+        background-color: #4caf50;
+        color: white;
+      }
+      .output {
+        margin-top: 20px;
+        font-size: 20px;
+      }
+    </style>
+  </head>
+  <body>
+    <h2>🍓 Fruit Detection & Car Control 🍌</h2>
+    <video id="webcam" autoplay playsinline width="224" height="224"></video>
+    <div class="output">
+      <p><strong>Detected:</strong> <span id="fruit">None</span></p>
+      <p><strong>Action:</strong> <span id="action">Waiting...</span></p>
+      <p><strong>Nutritional Facts:</strong> <span id="nutrition">-</span></p>
+    </div>
+
+    <div>
+      <button class="btn" onclick="sendCmd('forward')">⬆ Forward</button>
+      <button class="btn" onclick="sendCmd('backward')">⬇ Backward</button>
+      <button class="btn" onclick="sendCmd('left')">⬅ Left</button>
+      <button class="btn" onclick="sendCmd('right')">➡ Right</button>
+      <button class="btn" onclick="sendCmd('led')">💡 Toggle LED</button>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.9.0/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8/dist/teachablemachine-image.min.js"></script>
+    <script>
+      const URL = "./model/"; // Replace with Teachable Machine model URL
+      let model, webcam, labelContainer, maxPredictions;
+
+      async function init() {
+        const modelURL = URL + "model.json";
+        const metadataURL = URL + "metadata.json";
+
+        model = await tmImage.load(modelURL, metadataURL);
+        maxPredictions = model.getTotalClasses();
+
+        webcam = new tmImage.Webcam(300, 225, true);
+        await webcam.setup();
+        await webcam.play();
+        window.requestAnimationFrame(loop);
+
+        document.getElementById("webcam").appendChild(webcam.canvas);
+      }
+
+      async function loop() {
+        webcam.update();
+        await predict();
+        window.requestAnimationFrame(loop);
+      }
+
+      async function predict() {
+        const prediction = await model.predict(webcam.canvas);
+        prediction.sort((a, b) => b.probability - a.probability);
+        const fruit = prediction[0].className;
+        const confidence = prediction[0].probability;
+
+        if (confidence > 0.8) {
+          document.getElementById("fruit").innerText = fruit;
+          const action = fruitToAction(fruit);
+          document.getElementById("action").innerText = action;
+          document.getElementById("nutrition").innerText =
+            fruitToNutrition(fruit);
+          sendCmd(action);
+        }
+      }
+
+      function fruitToAction(fruit) {
+        switch (fruit) {
+          case "Strawberry":
+          case "Cherry":
+            return "stop";
+          case "Orange":
+            return "right";
+          case "Mango":
+          case "Apple":
+            return "left";
+          case "Kiwi":
+            return "backward";
+          case "Grapes":
+          case "Banana":
+            return "forward";
+          case "Chickoo":
+            return "led";
+          default:
+            return "stop";
+        }
+      }
+
+      function fruitToNutrition(fruit) {
+        const data = {
+          Strawberry: "Rich in Vitamin C & Fiber",
+          Orange: "High in Vitamin C",
+          Mango: "Loaded with Vitamin A",
+          Kiwi: "Great source of Vitamin K",
+          Grapes: "Antioxidants + Hydration",
+          Chickoo: "Iron, Potassium & Energy",
+          Cherry: "Good for Heart & Sleep",
+          Banana: "Potassium-rich Energy Booster",
+          Apple: "Fiber & Natural Sugar",
+        };
+        return data[fruit] || "-";
+      }
+
+      function sendCmd(cmd) {
+        fetch(`http://192.168.31.159/${cmd}`) // Replace <ESP32_IP> with actual IP
+          .then((res) => console.log("Sent:", cmd))
+          .catch((err) => console.error("Error:", err));
+      }
+
+      init();
+    </script>
+  </body>
+</html>
